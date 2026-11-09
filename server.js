@@ -24,8 +24,10 @@ function yaz(ad, veri) {
 
 let kullanicilar = oku('kullanicilar.json', {});  // email -> {email, ad, rol, salt, hash}
 let eslesmeler  = oku('eslesmeler.json', {});     // email -> [email, ...]
-const tokenlar  = new Map();                      // token -> email  (bellekte)
+// Token'lar diske yazilir ki sunucu yeniden baslayinca kullanici tekrar giris yapmasin
+const tokenlar  = new Map(Object.entries(oku('tokenlar.json', {}))); // token -> email
 const soketler  = new Map();                      // email -> ws
+function tokenKaydet() { yaz('tokenlar.json', Object.fromEntries(tokenlar)); }
 
 const norm = e => String(e || '').trim().toLowerCase();
 const sifreHash = (sifre, salt) => crypto.scryptSync(sifre, salt, 32).toString('hex');
@@ -61,7 +63,7 @@ app.post('/kayit', (req, res) => {
   const salt = crypto.randomBytes(16).toString('hex');
   kullanicilar[email] = { email, ad, rol, salt, hash: sifreHash(sifre, salt), kayit: Date.now() };
   yaz('kullanicilar.json', kullanicilar);
-  const token = yeniToken(); tokenlar.set(token, email);
+  const token = yeniToken(); tokenlar.set(token, email); tokenKaydet();
   res.json({ token, email, ad, rol });
 });
 
@@ -71,7 +73,7 @@ app.post('/giris', (req, res) => {
   const sifre = String(req.body.sifre || '');
   const u = kullanicilar[email];
   if (!u || u.hash !== sifreHash(sifre, u.salt)) return res.status(401).json({ hata: 'E-posta veya şifre yanlış' });
-  const token = yeniToken(); tokenlar.set(token, email);
+  const token = yeniToken(); tokenlar.set(token, email); tokenKaydet();
   res.json({ token, email: u.email, ad: u.ad, rol: u.rol });
 });
 
