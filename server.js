@@ -40,7 +40,32 @@ function emailBul(req) {
 }
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '3mb' }));  // kamera karesi (base64) icin
+
+// ---- Kamera: yasli en son kareyi yukler, aile ceker ----
+const kameralar = new Map();  // email -> { resim(base64), zaman }
+
+// Yasli kare yukler
+app.post('/kamera', (req, res) => {
+  const email = emailBul(req);
+  if (!email) return res.status(401).json({ hata: 'Giriş gerekli' });
+  const resim = String(req.body.resim || '');
+  if (!resim) return res.status(400).json({ hata: 'Boş kare' });
+  kameralar.set(email, { resim, zaman: Date.now() });
+  res.json({ ok: true });
+});
+
+// Aile en son kareyi ceker (hedef = yaslinin e-postasi)
+app.get('/kamera', (req, res) => {
+  const email = emailBul(req);
+  if (!email) return res.status(401).json({ hata: 'Giriş gerekli' });
+  const hedef = norm(req.query.hedef);
+  const esli = (eslesmeler[email] || []).includes(hedef);
+  if (!esli) return res.status(403).json({ hata: 'Bu kişiyle eşleşmemişsin' });
+  const k = kameralar.get(hedef);
+  if (!k) return res.json({ ok: true, resim: null });
+  res.json({ ok: true, resim: k.resim, zaman: k.zaman });
+});
 
 // Sağlık kontrolü — tarayıcıdan açınca çalıştığını görürsün
 app.get('/saglik', (req, res) => {
