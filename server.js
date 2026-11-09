@@ -77,6 +77,58 @@ app.post('/giris', (req, res) => {
   res.json({ token, email: u.email, ad: u.ad, rol: u.rol });
 });
 
+// ---- Şifre sıfırlama (e-postaya kod) ----
+const sifreKodlari = new Map();  // email -> { kod, sonGecerli }
+
+// SMTP ayarliysa mail gonderir; degilse gondermeden kodu doner (test icin)
+async function mailGonder(email, kod) {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return false;
+  try {
+    const nodemailer = require('nodemailer');
+    const t = nodemailer.createTransport({
+      host: SMTP_HOST, port: Number(SMTP_PORT || 587),
+      secure: Number(SMTP_PORT) === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS }
+    });
+    await t.sendMail({
+      from: SMTP_FROM || SMTP_USER,
+      to: email,
+      subject: 'Rüya Aile şifre sıfırlama kodu',
+      text: `Şifre sıfırlama kodunuz: ${kod}\n\nBu kod 15 dakika geçerlidir. İsteği siz yapmadıysanız bu e-postayı yok sayın.`
+    });
+    return true;
+  } catch (e) { console.error('mail hatasi', e.message); return false; }
+}
+
+app.post('/sifre-kod', async (req, res) => {
+  const email = norm(req.body.email);
+  if (!kullanicilar[email]) return res.status(404).json({ hata: 'Bu e-postayla kayıtlı kullanıcı yok' });
+  const kod = String(Math.floor(100000 + Math.random() * 900000));
+  sifreKodlari.set(email, { kod, sonGecerli: Date.now() + 15 * 60 * 1000 });
+  const gonderildi = await mailGonder(email, kod);
+  if (gonderildi) res.json({ ok: true, gonderildi: true });
+  else res.json({ ok: true, gonderildi: false, kodTest: kod }); // e-posta kurulana kadar
+});
+
+app.post('/sifre-sifirla', (req, res) => {
+  const email = norm(req.body.email);
+  const kod = String(req.body.kod || '').trim();
+  const yeni = String(req.body.yeniSifre || '');
+  const kayit = sifreKodlari.get(email);
+  const u = kullanicilar[email];
+  if (!u || !kayit) return res.status(400).json({ hata: 'Önce kod isteyin' });
+  if (Date.now() > kayit.sonGecerli) { sifreKodlari.delete(email); return res.status(400).json({ hata: 'Kodun süresi doldu' }); }
+  if (kayit.kod !== kod) return res.status(400).json({ hata: 'Kod yanlış' });
+  if (yeni.length < 4) return res.status(400).json({ hata: 'Şifre en az 4 hane olmalı' });
+  const salt = crypto.randomBytes(16).toString('hex');
+  u.salt = salt; u.hash = sifreHash(yeni, salt);
+  yaz('kullanicilar.json', kullanicilar);
+  sifreKodlari.delete(email);
+  const token = yeniToken(); tokenlar.set(token, email); tokenKaydet();
+  res.json({ token, email: u.email, ad: u.ad, rol: u.rol });
+});
+
 // Eşleştir — karşı tarafın e-postasını girerek bağlan
 app.post('/eslestir', (req, res) => {
   const email = emailBul(req);
