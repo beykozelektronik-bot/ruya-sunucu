@@ -1,0 +1,12 @@
+{
+  "name": "ruya-sunucu",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rüya Aile sunucusu — e-posta ile giriş, eşleştirme, anlık bildirim",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
