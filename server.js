@@ -24,6 +24,7 @@ function yaz(ad, veri) {
 
 let kullanicilar = oku('kullanicilar.json', {});  // email -> {email, ad, rol, salt, hash}
 let eslesmeler  = oku('eslesmeler.json', {});     // email -> [email, ...]
+let ayarlar     = oku('ayarlar.json', {});        // yasli email -> {kisiler, ilaclar, hareketsizlik, dusmeHassasiyet}
 // Token'lar diske yazilir ki sunucu yeniden baslayinca kullanici tekrar giris yapmasin
 const tokenlar  = new Map(Object.entries(oku('tokenlar.json', {}))); // token -> email
 const soketler  = new Map();                      // email -> ws
@@ -72,7 +73,7 @@ app.get('/saglik', (req, res) => {
   res.json({
     ok: true,
     mesaj: 'Rüya Aile sunucusu çalışıyor',
-    surum: 3,
+    surum: 4,
     kullanici: Object.keys(kullanicilar).length,
     zaman: new Date().toISOString()
   });
@@ -171,6 +172,17 @@ app.post('/eslestir', (req, res) => {
   res.json({ ok: true, eslesmeler: eslesmeler[email] });
 });
 
+// Eşleşmeyi kaldır (iki taraftan da)
+app.post('/eslesme-sil', (req, res) => {
+  const email = emailBul(req);
+  if (!email) return res.status(401).json({ hata: 'Giriş gerekli' });
+  const hedef = norm(req.body.hedefEmail);
+  eslesmeler[email] = (eslesmeler[email] || []).filter(e => e !== hedef);
+  eslesmeler[hedef] = (eslesmeler[hedef] || []).filter(e => e !== email);
+  yaz('eslesmeler.json', eslesmeler);
+  res.json({ ok: true, eslesmeler: eslesmeler[email] });
+});
+
 // Durum — kiminle eşleşmiş
 app.get('/durum', (req, res) => {
   const email = emailBul(req);
@@ -194,6 +206,11 @@ app.post('/olay', (req, res) => {
     zaman: Date.now()
   };
   const hedefler = eslesmeler[email] || [];
+  // Aileden gelen ayarlar sunucuda da saklanir: yasli o an cevrimdisiysa baglaninca alir
+  if (olay.tur === 'ayar' && olay.ekstra && typeof olay.ekstra === 'object') {
+    for (const h of hedefler) ayarlar[h] = { ...(ayarlar[h] || {}), ...olay.ekstra };
+    yaz('ayarlar.json', ayarlar);
+  }
   let iletilen = 0;
   for (const h of hedefler) {
     const s = soketler.get(h);
@@ -207,7 +224,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 // ---- Bağlantı kopması: yaşlının telefonu internetten düşerse aileye haber ----
-const KOPMA_BEKLE_MS = Number(process.env.KOPMA_BEKLE_MS || 60 * 1000);     // kisa kopmalarda (asansor vb.) alarm verme
+const KOPMA_BEKLE_MS = Number(process.env.KOPMA_BEKLE_MS || 45 * 1000);     // kisa kopmalarda (asansor vb.) alarm verme
 const kopmaZamanlayici = new Map();   // email -> timeout
 const kopukBildirildi = new Set();    // aileye "koptu" denmis yaslilar
 
@@ -233,6 +250,7 @@ wss.on('connection', (ws, req) => {
   ws.canli = true;
   ws.on('pong', () => { ws.canli = true; });
   ws.send(JSON.stringify({ tur: 'bagli', mesaj: 'Sunucuya bağlandın', zaman: Date.now() }));
+  if (ayarlar[email]) ws.send(JSON.stringify({ tur: 'ayar', mesaj: '', ekstra: ayarlar[email], zaman: Date.now() }));
 
   // geri geldi: bekleyen alarmi iptal et; aileye "koptu" denmisse "geri geldi" de
   clearTimeout(kopmaZamanlayici.get(email)); kopmaZamanlayici.delete(email);
@@ -258,7 +276,7 @@ wss.on('connection', (ws, req) => {
   ws.on('error', () => { });
 });
 
-// Bağlantıları canlı tut: 20 sn'de bir ping; cevap vermeyeni kopmuş say
+// Bağlantıları canlı tut: 15 sn'de bir ping; cevap vermeyeni kopmuş say
 // (Wi-Fi kapaninca telefon "kapattim" diyemez, bunu ancak boyle anlariz)
 setInterval(() => {
   for (const s of wss.clients) {
@@ -266,6 +284,6 @@ setInterval(() => {
     s.canli = false;
     try { s.ping(); } catch { }
   }
-}, 20000);
+}, 15000);
 
 server.listen(PORT, () => console.log('Rüya Aile sunucusu çalışıyor, port ' + PORT));
