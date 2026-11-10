@@ -203,19 +203,66 @@ app.post('/olay', (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
+// ---- Bağlantı kopması: yaşlının telefonu internetten düşerse aileye haber ----
+const KOPMA_BEKLE_MS = Number(process.env.KOPMA_BEKLE_MS || 60 * 1000);     // kisa kopmalarda (asansor vb.) alarm verme
+const kopmaZamanlayici = new Map();   // email -> timeout
+const kopukBildirildi = new Set();    // aileye "koptu" denmis yaslilar
+
+function aileyeGonder(email, tur, mesaj) {
+  const olay = { kimden: email, gonderenAd: (kullanicilar[email] || {}).ad || email,
+                 tur, mesaj, ekstra: null, zaman: Date.now() };
+  for (const h of (eslesmeler[email] || [])) {
+    const s = soketler.get(h);
+    if (s && s.readyState === 1) { try { s.send(JSON.stringify(olay)); } catch { } }
+  }
+}
+const wsRol = new Map();             // email -> uygulamanin bildirdigi rol
+const yasliMi = email => (wsRol.get(email) || (kullanicilar[email] || {}).rol) === 'yasli';
+
 wss.on('connection', (ws, req) => {
   let email;
   try { email = tokenlar.get(new URL(req.url, 'http://x').searchParams.get('token')); } catch { }
   if (!email) { try { ws.close(); } catch { } return; }
+  try { const r = new URL(req.url, 'http://x').searchParams.get('rol'); if (r) wsRol.set(email, r); } catch { }
+  const eski = soketler.get(email);
   soketler.set(email, ws);
+  if (eski && eski !== ws) { try { eski.terminate(); } catch { } }
+  ws.canli = true;
+  ws.on('pong', () => { ws.canli = true; });
   ws.send(JSON.stringify({ tur: 'bagli', mesaj: 'Sunucuya bağlandın', zaman: Date.now() }));
-  ws.on('close', () => { if (soketler.get(email) === ws) soketler.delete(email); });
+
+  // geri geldi: bekleyen alarmi iptal et; aileye "koptu" denmisse "geri geldi" de
+  clearTimeout(kopmaZamanlayici.get(email)); kopmaZamanlayici.delete(email);
+  if (kopukBildirildi.delete(email)) {
+    const ad = (kullanicilar[email] || {}).ad || email;
+    aileyeGonder(email, 'baglantiGeldi', `${ad} telefonunun internet bağlantısı geri geldi.`);
+  }
+
+  ws.on('close', () => {
+    if (soketler.get(email) !== ws) return;   // yeni baglanti zaten var
+    soketler.delete(email);
+    if (!yasliMi(email)) return;
+    clearTimeout(kopmaZamanlayici.get(email));
+    kopmaZamanlayici.set(email, setTimeout(() => {
+      kopmaZamanlayici.delete(email);
+      if (soketler.has(email)) return;
+      kopukBildirildi.add(email);
+      const ad = (kullanicilar[email] || {}).ad || email;
+      aileyeGonder(email, 'sinyal',
+        `${ad} telefonunun internet bağlantısı koptu (Wi-Fi/mobil veri kapalı, çekmiyor ya da telefon kapandı). Lütfen kontrol edin.`);
+    }, KOPMA_BEKLE_MS));
+  });
   ws.on('error', () => { });
 });
 
-// Bağlantıları canlı tut (30 sn'de bir ping)
+// Bağlantıları canlı tut: 20 sn'de bir ping; cevap vermeyeni kopmuş say
+// (Wi-Fi kapaninca telefon "kapattim" diyemez, bunu ancak boyle anlariz)
 setInterval(() => {
-  for (const s of soketler.values()) { try { if (s.readyState === 1) s.ping(); } catch { } }
-}, 30000);
+  for (const s of wss.clients) {
+    if (s.canli === false) { try { s.terminate(); } catch { } continue; }
+    s.canli = false;
+    try { s.ping(); } catch { }
+  }
+}, 20000);
 
 server.listen(PORT, () => console.log('Rüya Aile sunucusu çalışıyor, port ' + PORT));
