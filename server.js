@@ -73,7 +73,7 @@ app.get('/saglik', (req, res) => {
   res.json({
     ok: true,
     mesaj: 'Rüya Aile sunucusu çalışıyor',
-    surum: 4,
+    surum: 5,
     kullanici: Object.keys(kullanicilar).length,
     zaman: new Date().toISOString()
   });
@@ -170,6 +170,53 @@ app.post('/eslestir', (req, res) => {
   eslesmeler[hedef] = Array.from(new Set([...(eslesmeler[hedef] || []), email]));
   yaz('eslesmeler.json', eslesmeler);
   res.json({ ok: true, eslesmeler: eslesmeler[email] });
+});
+
+// ---- Yaşlı başına ayarlar (bakıcı yönetir): kisiler, ilaclar, hareketsizlik, dusmeHassasiyet ----
+const esliMi = (a, b) => (eslesmeler[a] || []).includes(b);
+
+// Bakıcı bir yaşlının ayarlarını okur
+app.get('/ayar', (req, res) => {
+  const email = emailBul(req);
+  if (!email) return res.status(401).json({ hata: 'Giriş gerekli' });
+  const hedef = norm(req.query.hedef);
+  if (!esliMi(email, hedef)) return res.status(403).json({ hata: 'Bu kişiyle eşleşmemişsin' });
+  res.json({ ok: true, ayar: ayarlar[hedef] || {}, cevrimici: soketler.has(hedef) });
+});
+
+// Bakıcı bir yaşlının ayarlarını kaydeder -> yaşlıya anında (çevrimdışıysa bağlanınca) gider
+app.post('/ayar', (req, res) => {
+  const email = emailBul(req);
+  if (!email) return res.status(401).json({ hata: 'Giriş gerekli' });
+  const hedef = norm(req.body.hedefEmail);
+  if (!esliMi(email, hedef)) return res.status(403).json({ hata: 'Bu kişiyle eşleşmemişsin' });
+  const ayar = req.body.ayar;
+  if (!ayar || typeof ayar !== 'object') return res.status(400).json({ hata: 'Ayar boş' });
+  ayarlar[hedef] = { ...(ayarlar[hedef] || {}), ...ayar };
+  yaz('ayarlar.json', ayarlar);
+  const s = soketler.get(hedef);
+  let iletildi = false;
+  if (s && s.readyState === 1) {
+    try { s.send(JSON.stringify({ tur: 'ayar', mesaj: '', ekstra: ayarlar[hedef], zaman: Date.now() })); iletildi = true; } catch { }
+  }
+  res.json({ ok: true, iletildi });
+});
+
+// Yaşlı kendi telefonundaki ayarları bildirir (ilk bağlantıda sadece eksikleri; kendisi değiştirince üzerine yazar)
+app.post('/ayar-yasli', (req, res) => {
+  const email = emailBul(req);
+  if (!email) return res.status(401).json({ hata: 'Giriş gerekli' });
+  const ayar = req.body.ayar;
+  if (!ayar || typeof ayar !== 'object') return res.status(400).json({ hata: 'Ayar boş' });
+  const mevcut = ayarlar[email] || {};
+  if (req.body.sadeceEksik) {
+    for (const k of Object.keys(ayar)) if (!(k in mevcut)) mevcut[k] = ayar[k];
+    ayarlar[email] = mevcut;
+  } else {
+    ayarlar[email] = { ...mevcut, ...ayar };
+  }
+  yaz('ayarlar.json', ayarlar);
+  res.json({ ok: true });
 });
 
 // Eşleşmeyi kaldır (iki taraftan da)
