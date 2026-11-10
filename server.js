@@ -114,7 +114,8 @@ async function mailGonder(email, kod) {
     const t = nodemailer.createTransport({
       host: SMTP_HOST, port: Number(SMTP_PORT || 587),
       secure: Number(SMTP_PORT) === 465,
-      auth: { user: SMTP_USER, pass: SMTP_PASS }
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+      tls: { rejectUnauthorized: false }  // hosting e-posta sunucularinda sertifika adi farkli olabiliyor
     });
     await t.sendMail({
       from: SMTP_FROM || SMTP_USER,
