@@ -72,6 +72,7 @@ app.get('/saglik', (req, res) => {
   res.json({
     ok: true,
     mesaj: 'Rüya Aile sunucusu çalışıyor',
+    surum: 3,
     kullanici: Object.keys(kullanicilar).length,
     zaman: new Date().toISOString()
   });
@@ -175,7 +176,9 @@ app.get('/durum', (req, res) => {
   const email = emailBul(req);
   if (!email) return res.status(401).json({ hata: 'Giriş gerekli' });
   const u = kullanicilar[email];
-  res.json({ email, ad: u.ad, rol: u.rol, eslesmeler: eslesmeler[email] || [], cevrimici: [...soketler.keys()] });
+  const liste = eslesmeler[email] || [];
+  const kisiler = liste.map(e => ({ email: e, ad: (kullanicilar[e] || {}).ad || e, cevrimici: soketler.has(e) }));
+  res.json({ email, ad: u.ad, rol: u.rol, eslesmeler: liste, kisiler, cevrimici: [...soketler.keys()] });
 });
 
 // Olay gönder — eşleşmiş telefonlara anlık iletir (düşme, test, konum vb.)
