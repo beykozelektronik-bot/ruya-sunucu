@@ -34,6 +34,7 @@ After=network.target
 ExecStart=/usr/bin/node ${HEDEF}/server.js
 WorkingDirectory=${HEDEF}
 Environment=PORT=8080
+EnvironmentFile=-/etc/ruya-sunucu.env
 Restart=always
 RestartSec=3
 User=root

@@ -105,7 +105,7 @@ app.post('/giris', (req, res) => {
 // ---- Şifre sıfırlama (e-postaya kod) ----
 const sifreKodlari = new Map();  // email -> { kod, sonGecerli }
 
-// SMTP ayarliysa mail gonderir; degilse gondermeden kodu doner (test icin)
+// SMTP ayarliysa mail gonderir (ayar: bash /opt/ruya-sunucu/mail-ayarla.sh)
 async function mailGonder(email, kod) {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return false;
@@ -132,8 +132,10 @@ app.post('/sifre-kod', async (req, res) => {
   const kod = String(Math.floor(100000 + Math.random() * 900000));
   sifreKodlari.set(email, { kod, sonGecerli: Date.now() + 15 * 60 * 1000 });
   const gonderildi = await mailGonder(email, kod);
-  if (gonderildi) res.json({ ok: true, gonderildi: true });
-  else res.json({ ok: true, gonderildi: false, kodTest: kod }); // e-posta kurulana kadar
+  if (gonderildi) return res.json({ ok: true, gonderildi: true });
+  // GUVENLIK: kod asla uygulamaya geri donmez (yoksa e-postayi bilen herkes sifreyi degistirebilirdi)
+  sifreKodlari.delete(email);
+  res.status(503).json({ hata: 'Şu an e-posta gönderilemiyor. Lütfen daha sonra tekrar deneyin ya da bize WhatsApp\'tan ulaşın.' });
 });
 
 app.post('/sifre-sifirla', (req, res) => {

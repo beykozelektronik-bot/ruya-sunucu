@@ -9,6 +9,12 @@ curl -fsSL https://raw.githubusercontent.com/beykozelektronik-bot/ruya-sunucu/ma
 ```
 Kurulumdan sonra `http://SUNUCU-IP:8080/saglik` adresi "çalışıyor" döndürür.
 
+## Şifre sıfırlama e-postası (Gmail)
+```
+bash /opt/ruya-sunucu/mail-ayarla.sh
+```
+Gmail adresi ve Gmail "Uygulama şifresi" sorar, kaydeder, sunucuyu yeniden başlatır ve deneme e-postası gönderir.
+
 ## Uç noktalar
 - `GET  /saglik` — sağlık kontrolü
 - `POST /kayit`  `{email, sifre, ad, rol}` → `{token}`
