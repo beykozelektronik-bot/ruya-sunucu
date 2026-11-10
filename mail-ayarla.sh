@@ -7,8 +7,15 @@ AYAR=/etc/ruya-sunucu.env
 SERVIS=/etc/systemd/system/ruya-sunucu.service
 
 echo "==== Rüya Aile e-posta ayarı ===="
-read -rp "Gönderen e-posta adresi: " ADRES < /dev/tty
-ADRES=$(echo "$ADRES" | tr -d ' ')
+while true; do
+  read -rp "Gönderen e-posta adresi: " ADRES < /dev/tty
+  # bosluk ve gorunmez/bozuk karakterleri temizle (Turkce klavye kazalari)
+  ADRES=$(printf '%s' "$ADRES" | LC_ALL=C tr -cd 'A-Za-z0-9@._+-')
+  if echo "$ADRES" | grep -Eq '^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
+    echo "Adres: $ADRES"; break
+  fi
+  echo "Bu adres geçersiz görünüyor, tekrar yazın."
+done
 ALAN=${ADRES##*@}
 
 if [ "$ALAN" = "gmail.com" ]; then
